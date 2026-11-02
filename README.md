@@ -1,22 +1,40 @@
-# Born For
+# Born For landing page
 
-Zodiac + RPG self-discovery app. Specs: `BORN-FOR PRODUCT_BLUEPRINT.md`, `SIGNS_AND_ONBOARDING_SPEC.md` (16 traits, signs, onboarding), `BORN-FOR PILOT_CONTENT.md` (career worlds, quest template, formulas, personas) and `CAREERS.md` (every career in full, generated from the code).
+Two pages: `/` introduces Born For; `/discover/` runs a birthday → character → career selection → life teaser. It collects no email addresses. Birthday processing stays in tab memory and is never sent to the counter API or saved in browser storage.
 
-Expo (React Native + TypeScript) with Expo Router.
+## Local development
 
-- `src/app/`: screens. Onboarding: intent → birthday (cusp prompt, manual sign) → character reveal → confirm poll (8 signature traits) → "Anything else that's you?" (background traits) → "Your sign called X of 8" → worlds → job picks → work style → paywall stub → career reveal or free teaser. Then Home | Character | Explore tabs, career worlds, path details, quest start (with check-in reminder), reflection and rewards, Settings (cusp sign, reminders, recalibrate, delete data)
-- `src/content/`: 16 traits in four families, all 12 signs (signature and background traits), onboarding questions, 17 career worlds, 99 careers (`careers/` by area, shared template in `careerKit.ts`), constellations, design tokens
-- `src/logic/`: sign from birthday (with cusp detection), poll scoring and "Your sign called X of 8", ranking and reasons, difficulty, XP and levels, constellation unlocks, titles, related paths and next-quest recommendations, character state
-- `src/logic/game.ts`: the saved game (quests, free tier, what to suggest next, recalibration); `badges.ts` and `avatar.ts`: badges and the evolving character layers
-- `src/state/`, `src/storage/`, `src/ui/`: app state, on-device storage (SQLite on phones, localStorage on web), reminders and shared components
-- `scripts/careers-doc.ts`: regenerates `CAREERS.md`
-- `tests/`: unit tests for content and logic, including the five pilot personas
+Use Node 24. From this repository’s root directory:
 
-```bash
-npm install
-npm run web           # or: npm start, then open in Expo Go
-npm test
-npm run typecheck
-npm run lint
-npm run docs:careers  # after editing src/content/careers.ts
+```sh
+npm ci
+npm run dev
 ```
+
+Vite serves both pages and `/api/likes`. Local development uses a real SQLite database at `.data/likes.sqlite`; the anonymous cookie signing key is retained in `.data/cookie-secret`. Both are ignored by Git. The shared counter begins at **117**, increments atomically once per signed browser cookie, and survives local server restarts. `npm run build && npm run preview` tests the production frontend with the same local API.
+
+```sh
+npm test
+npm run build
+```
+
+## Deploy to Vercel and connect your domain
+
+1. In Vercel choose **Add New → Project** and import `process-roman/born-for-landing-page`. Use the `main` branch for production.
+2. Leave **Root Directory** at the default (`./`). Framework: **Vite**. Build command: `npm run build`. Output: `dist`. Node: **24.x**. The directory is self-contained: no files outside the project root are needed during deployment.
+3. Create an Upstash Redis database (available through the Vercel Marketplace or Upstash). In Vercel's project environment settings add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` from its REST API settings. Add a random `LIKE_COOKIE_SECRET` of at least 32 characters (`openssl rand -hex 32`). These are server-only credentials; never put them in frontend code or chat. For separate preview counts, set a different `LIKES_NAMESPACE` in preview environments.
+4. Deploy. `/api/likes` is a Vercel Node function; it uses a single atomic Redis script to initialize the counter at 117 and prevent duplicate likes. Initialization never resets an existing count. If storage isn't configured or is unavailable, the UI reports that the live count is unavailable and offers retry. It does not simulate a successful like.
+5. In **Project → Settings → Domains**, add the domain you own and optionally `www`. Enter exactly the DNS records Vercel provides at your domain provider. Wait for domain verification; Vercel provisions HTTPS. No domain transfer is needed.
+6. Verify `/`, a direct visit to `/discover/`, and `/api/likes` on the real domain. Like once, reload, and confirm it remains liked. A separate browser should see the updated shared count. Future pushes to the chosen production branch can deploy automatically.
+
+The Redis adapter and local SQLite store are exercised by automated tests. Live Upstash authorization, Vercel deployment and custom-domain DNS require the project owner's accounts/settings and have not been performed in this workspace.
+
+The counter represents **117 starting sparks plus anonymous browser likes**, not verified unique humans. A signed HttpOnly SameSite cookie remembers a browser's vote. Clearing cookies or using another browser allows another vote. There are no accounts or mailing lists. Monitor usage and enable hosting-level rate limits if needed.
+
+## App source of truth
+
+This site was created on a branch from main at `28c3d3f`. Data and artwork are copied into the website so it deploys independently. `src/generated/app-data.json` holds the main app's twelve signs, 16 starting attributes, 99 careers and the first scene of each career. `src/generated/birthday.js` is bundled from the app's astronomical sign calculation, including cusp detection. Nothing in the app was edited for this site.
+
+To refresh the content, check out the app repository separately, then run `npm run sync:app -- /absolute/path/to/born-for` from this repository. It defaults to a sibling `../born-for` checkout. Inspect the generated changes and rebuild. The sync reads app files and copies data, the birthday helper, and approved artwork into this repository; the app checkout is not needed to install, build, run, or deploy the website. The landing page uses **Leo / The Champion** as its featured example. In the FiveThirtyEight [US SSA births dataset, 2000–2014](https://github.com/fivethirtyeight/data/tree/master/births), classifying dates at noon UTC using the app's `signAt` calculation gives Leo the largest total (5,580,362), ahead of Virgo and Cancer. This is a US birth-frequency proxy, not a claim of universal popularity, and the public page labels it only as an example.
+
+Self-hosted Cormorant Garamond and DM Sans are provided through Fontsource packages under the SIL Open Font License. Avatar and terrain illustrations are the app's existing Born For artwork. The website logo at `public/brand-logo.png` is an unchanged copy of the app’s `assets/images/Born for logo.png`, used in the site header, footer, phone preview and browser icons. No third-party image, font, analytics or marketing services are contacted by the visitor's browser.
