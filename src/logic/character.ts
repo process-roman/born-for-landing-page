@@ -1,0 +1,233 @@
+// Character state and the Choose → Try → Reflect → Level up loop. All functions are pure.
+
+import { ATTRIBUTE_IDS, zeroStats, type AttributeId, type Stats } from '../content/attributes';
+import { getQuest, type CareerId, type StarNumber } from '../content/careers';
+import type { IntentId, WorkStyleId } from '../content/preferences';
+import type { WorldId } from '../content/worlds';
+import type { SignId } from '../content/signs';
+import { isConstellationComplete, isStarAvailable } from './constellation';
+import { rankCareers, type FeedbackMap, type PathInterest, type Ranking } from './ranking';
+import { confirmStats, currentStats, mapStats, type PollAnswers } from './stats';
+import { titleFor, type Title } from './titles';
+import { attributeXpForQuest, levelForXp, questXp } from './xp';
+
+export type WouldDoMore = 'yes' | 'maybe' | 'no';
+
+export interface Reflection {
+  /** 5-emoji scale, 1–5. */
+  enjoyment: 1 | 2 | 3 | 4 | 5;
+  wouldDoMore: WouldDoMore;
+  feltNatural: AttributeId[];
+  feltHard: AttributeId[];
+}
+
+export interface LitStar {
+  star: StarNumber;
+  completedAt: string;
+  reflection: Reflection | null;
+}
+
+export interface Character {
+  sign: SignId;
+  /** Both signs when the birthday fell on a cusp, so the choice can be changed in settings. */
+  cuspSigns: [SignId, SignId] | null;
+  intent: IntentId | null;
+  /** "Which worlds pull you?" */
+  worlds: WorldId[];
+  /** "Any of these catch your eye?" */
+  picks: CareerId[];
+  workStyle: WorkStyleId;
+  /** Answers from the first poll and the latest one, kept so a sign change can recompute stats. */
+  dayOneAnswers: PollAnswers;
+  answers: PollAnswers;
+  /** Confirmed stats from the first poll, kept for "Then vs now". */
+  dayOne: Stats;
+  /** Confirmed base; recalibration replaces this only. */
+  confirmed: Stats;
+  /** Earned attribute XP; never reset. */
+  earned: Stats;
+  totalXp: number;
+  stars: Partial<Record<CareerId, LitStar[]>>;
+  feedback: FeedbackMap;
+  /** How many times the poll was rerun. Missing in saves from before recalibration existed. */
+  recalibrations?: number;
+  /** Careers whose simulated life was finished at least once (for the one-time life XP). */
+  livesCompleted?: CareerId[];
+  /** Kept from the birthday (never the full date) so paths can account for age. Missing when unknown. */
+  birthYear?: number;
+}
+
+export interface OnboardingInput {
+  intent?: IntentId;
+  sign: SignId;
+  cuspSigns?: [SignId, SignId];
+  birthYear?: number;
+  answers: PollAnswers;
+  worlds: WorldId[];
+  picks: CareerId[];
+  workStyle: WorkStyleId;
+}
+
+export function createCharacter({ intent, sign, cuspSigns, birthYear, answers, worlds, picks, workStyle }: OnboardingInput): Character {
+  if (cuspSigns && !cuspSigns.includes(sign)) throw new Error(`${sign} is not one of the cusp signs`);
+  const confirmed = confirmStats(sign, answers);
+  return {
+    ...(birthYear ? { birthYear } : {}),
+    sign,
+    cuspSigns: cuspSigns ?? null,
+    intent: intent ?? null,
+    worlds,
+    picks,
+    workStyle,
+    dayOneAnswers: answers,
+    answers,
+    dayOne: confirmed,
+    confirmed,
+    earned: zeroStats(),
+    totalXp: 0,
+    stars: {},
+    feedback: {},
+  };
+}
+
+/** Age this year (within a year, since only the birth year is kept). Null when unknown. */
+export function ageOf(character: Character, now: Date = new Date()): number | null {
+  return character.birthYear ? now.getFullYear() - character.birthYear : null;
+}
+
+/** Sets or removes the birth year (Settings). */
+export function setBirthYear(character: Character, birthYear: number | null): Character {
+  const { birthYear: _old, ...rest } = character;
+  return birthYear ? { ...rest, birthYear } : rest;
+}
+
+/** Reruns the poll: updates the confirmed base, keeps earned XP. */
+export function recalibrate(character: Character, answers: PollAnswers): Character {
+  return {
+    ...character,
+    answers,
+    confirmed: confirmStats(character.sign, answers),
+    recalibrations: (character.recalibrations ?? 0) + 1,
+  };
+}
+
+/**
+ * Switches to the other cusp sign (settings). Stats are recomputed from the same poll answers
+ * with the new sign's profile; earned XP, stars and progress are kept, and titles follow the new sign.
+ */
+export function changeCuspSign(character: Character, sign: SignId): Character {
+  if (!character.cuspSigns?.includes(sign)) throw new Error(`${sign} is not one of this character's cusp signs`);
+  return {
+    ...character,
+    sign,
+    dayOne: confirmStats(sign, character.dayOneAnswers),
+    confirmed: confirmStats(sign, character.answers),
+  };
+}
+
+export function statsOf(character: Character): Stats {
+  return currentStats(character.confirmed, character.earned);
+}
+
+export function levelOf(character: Character): number {
+  return levelForXp(character.totalXp);
+}
+
+export function litStarNumbers(character: Character, careerId: CareerId): StarNumber[] {
+  return (character.stars[careerId] ?? []).map((s) => s.star);
+}
+
+export function titlesOf(character: Character): Title[] {
+  return (Object.keys(character.stars) as CareerId[])
+    .map((id) => titleFor(character.sign, id, litStarNumbers(character, id)))
+    .filter((t): t is Title => t !== null);
+}
+
+export function rankingFor(character: Character): Ranking {
+  return rankCareers({
+    stats: statsOf(character),
+    worlds: character.worlds,
+    picks: character.picks,
+    workStyle: character.workStyle,
+    feedback: character.feedback,
+    age: ageOf(character),
+  });
+}
+
+export function setPathInterest(character: Character, careerId: CareerId, interest: PathInterest): Character {
+  return {
+    ...character,
+    feedback: { ...character.feedback, [careerId]: { ...character.feedback[careerId], interest } },
+  };
+}
+
+export interface QuestRewards {
+  xp: number;
+  attributeXp: Stats;
+  levelBefore: number;
+  levelAfter: number;
+  /** Set when this quest unlocked a title or upgraded it to the starred form. */
+  newTitle: Title | null;
+  constellationComplete: boolean;
+}
+
+/**
+ * Lights a star. Quest XP is always granted; reflection XP, attribute XP and the enjoyment
+ * feedback signal only when a reflection is given.
+ */
+export function completeQuest(
+  character: Character,
+  careerId: CareerId,
+  star: StarNumber,
+  reflection: Reflection | null,
+  completedAt: string,
+): { character: Character; rewards: QuestRewards } {
+  const litBefore = litStarNumbers(character, careerId);
+  if (!isStarAvailable(star, litBefore)) {
+    throw new Error(`Star ${star} on ${careerId} is not available`);
+  }
+
+  const quest = getQuest(careerId, star);
+  const xp = questXp(quest.tier, reflection !== null);
+  const attributeXp = reflection ? attributeXpForQuest(quest, reflection.feltNatural) : zeroStats();
+  const litAfter = [...litBefore, star];
+
+  const prevFeedback = character.feedback[careerId];
+  const feedback: FeedbackMap = reflection
+    ? {
+        ...character.feedback,
+        [careerId]: { ...prevFeedback, questEnjoyment: [...(prevFeedback?.questEnjoyment ?? []), reflection.enjoyment] },
+      }
+    : character.feedback;
+
+  const next: Character = {
+    ...character,
+    earned: mapStats((a) => character.earned[a] + attributeXp[a]),
+    totalXp: character.totalXp + xp,
+    stars: { ...character.stars, [careerId]: [...(character.stars[careerId] ?? []), { star, completedAt, reflection }] },
+    feedback,
+  };
+
+  const titleBefore = titleFor(character.sign, careerId, litBefore);
+  const titleAfter = titleFor(character.sign, careerId, litAfter);
+  const newTitle = titleAfter && titleAfter.text !== titleBefore?.text ? titleAfter : null;
+
+  return {
+    character: next,
+    rewards: {
+      xp,
+      attributeXp,
+      levelBefore: levelOf(character),
+      levelAfter: levelOf(next),
+      newTitle,
+      constellationComplete: isConstellationComplete(litAfter),
+    },
+  };
+}
+
+/** Stat changes since day one, for "Then vs now". */
+export function thenVsNow(character: Character): { attribute: AttributeId; then: number; now: number }[] {
+  const now = statsOf(character);
+  return ATTRIBUTE_IDS.map((a) => ({ attribute: a, then: character.dayOne[a], now: now[a] }));
+}
+
