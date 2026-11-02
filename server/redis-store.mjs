@@ -1,3 +1,4 @@
+import { counterError } from "./counter-errors.mjs";
 export const LIKE_SCRIPT = `
 redis.call('SETNX', KEYS[1], 117)
 local added = 0
@@ -12,32 +13,63 @@ export function redisStore({ url, token, namespace = "bornfor:website:v1" }) {
     throw new Error("Shared counter storage is not configured.");
   return {
     async visit(id, like) {
-      const response = await fetch(url.replace(/\/$/, ""), {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify([
-          "EVAL",
-          LIKE_SCRIPT,
-          "2",
-          `${namespace}:count`,
-          `${namespace}:visitors`,
-          like ? "like" : "read",
-          id,
-        ]),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!response.ok) throw new Error("Counter storage unavailable");
-      const { result, error } = await response.json();
+      let response;
+      try {
+        response = await fetch(url.replace(/\/$/, ""), {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify([
+            "EVAL",
+            LIKE_SCRIPT,
+            "2",
+            `${namespace}:count`,
+            `${namespace}:visitors`,
+            like ? "like" : "read",
+            id,
+          ]),
+          signal: AbortSignal.timeout(8000),
+        });
+      } catch {
+        throw counterError(
+          "COUNTER_REDIS_CONNECTION_FAILED",
+          "Counter storage connection failed",
+        );
+      }
+      if (!response.ok)
+        throw counterError(
+          [401, 403].includes(response.status)
+            ? "COUNTER_REDIS_AUTH_FAILED"
+            : "COUNTER_REDIS_HTTP_FAILED",
+          "Counter storage unavailable",
+        );
+      let payload;
+      try {
+        payload = await response.json();
+      } catch {
+        throw counterError(
+          "COUNTER_REDIS_RESPONSE_INVALID",
+          "Invalid counter response",
+        );
+      }
+      const { result, error } = payload || {};
+      if (error)
+        throw counterError(
+          "COUNTER_REDIS_COMMAND_FAILED",
+          "Counter storage rejected the command",
+        );
       if (
         error ||
         !Array.isArray(result) ||
         !Number.isSafeInteger(result[0]) ||
         result[0] < 117
       )
-        throw new Error("Invalid counter result");
+        throw counterError(
+          "COUNTER_REDIS_RESPONSE_INVALID",
+          "Invalid counter result",
+        );
       return { count: result[0], liked: result[1] === 1 };
     },
   };

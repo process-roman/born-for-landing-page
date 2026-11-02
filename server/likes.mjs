@@ -1,3 +1,4 @@
+import { counterFailure } from "./counter-errors.mjs";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 export const BASE_COUNT = 117;
 const COOKIE = "bf_visitor";
@@ -52,10 +53,8 @@ export function createLikesHandler({ store, secret, secure = true }) {
       );
     try {
       return send(200, await store.visit(id, req.method === "POST"));
-    } catch {
-      return send(503, {
-        error: "The live count is temporarily unavailable. Please try again.",
-      });
+    } catch (error) {
+      return send(503, counterFailure(error));
     }
   };
 }
