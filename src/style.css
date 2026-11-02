@@ -588,6 +588,12 @@ p {
 .section {
   padding: 102px 0;
 }
+.early-support + .section {
+  padding-top: clamp(28px, 3vw, 44px);
+}
+.early-support + .section .section-heading h2 {
+  margin-top: 0;
+}
 .section-heading {
   text-align: center;
 }
