@@ -353,14 +353,6 @@ p {
   top: calc(var(--row) * -100%);
   object-fit: fill;
 }
-.sample-caption {
-  position: relative;
-  margin-top: 24px;
-  text-align: center;
-  font-size: 8px;
-  letter-spacing: 2px;
-  color: #80687d;
-}
 .phone-frame {
   position: relative;
   z-index: 1;
@@ -586,6 +578,12 @@ p {
 .horizon-strip em {
   font-size: 19px;
   color: var(--ink);
+}
+.early-support {
+  padding-top: 1px;
+}
+.early-support .like-widget {
+  margin: 27px auto 0;
 }
 .section {
   padding: 102px 0;
@@ -1662,10 +1660,6 @@ dialog p {
     width: 70%;
     right: 8%;
     height: 230px;
-  }
-  .sample-caption {
-    font-size: 6px;
-    letter-spacing: 1.7px;
   }
   .horizon-strip {
     display: grid;
