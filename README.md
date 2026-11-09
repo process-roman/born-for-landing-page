@@ -1,6 +1,12 @@
 # Born For landing page
 
-Two pages: `/` introduces Born For; `/discover/` runs a birthday → character → career selection → life teaser. It collects no email addresses. Birthday processing stays in tab memory and is never sent to the counter API or saved in browser storage.
+Born For is positioned as a **career-life simulator**: explore different career lives through interactive stories, decisions, challenges, and consequences, then reflect on paths to investigate in real life. The central promise is **“Explore a career before choosing your path.”**
+
+Two pages: `/` introduces the career simulator; `/discover/` runs birthday → starting character → career selection → opening-scene teaser. The website stops at the first choice and explains that playable outcomes continue in the upcoming app. The app’s career stories and real-world quests are described as app features, not features of this website preview.
+
+A birthday selects fictional, zodiac-inspired character attributes. These do not scientifically measure intelligence, personality, skills, or career suitability. This explanation appears alongside the birthday form and in About. The website does not collect trait confirmations or self-reported abilities; those inputs belong to the full app. Positioning changes do not establish scientific validity or guarantee app-store approval.
+
+Birthday processing stays in tab memory and is never sent to the counter API or saved in browser storage. The site collects no email addresses.
 
 ## Local development
 
